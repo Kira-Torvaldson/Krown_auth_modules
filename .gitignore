@@ -24,6 +24,7 @@ dist/
 
 # Docker
 output/
+docker/Dockerfile
 
 # Fichiers système
 Thumbs.db
