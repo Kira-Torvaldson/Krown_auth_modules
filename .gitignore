@@ -1,0 +1,23 @@
+# Fichiers de compilation
+*.o
+*.a
+*.so
+*.dll
+*.exe
+krown_auth
+
+# Fichiers de build
+build/
+dist/
+
+# Fichiers temporaires
+*.swp
+*.swo
+*~
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
