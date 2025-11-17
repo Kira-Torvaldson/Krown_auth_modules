@@ -15,7 +15,10 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-COPY krown_auth.h krown_auth.c krown_auth_main.c Makefile ./
+# Copier les fichiers sources avec la nouvelle structure
+COPY include/ ./include/
+COPY src/ ./src/
+COPY Makefile ./
 
 RUN make clean && make
 
@@ -33,7 +36,10 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-COPY krown_auth.h krown_auth.c krown_auth_main.c Makefile ./
+# Copier les fichiers sources avec la nouvelle structure
+COPY include/ ./include/
+COPY src/ ./src/
+COPY Makefile ./
 
 RUN make clean && make
 
@@ -51,7 +57,10 @@ RUN pacman -Syu --noconfirm \
 
 WORKDIR /app
 
-COPY krown_auth.h krown_auth.c krown_auth_main.c Makefile ./
+# Copier les fichiers sources avec la nouvelle structure
+COPY include/ ./include/
+COPY src/ ./src/
+COPY Makefile ./
 
 RUN make clean && make
 
@@ -66,7 +75,7 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-COPY --from=debian-builder /app/krown_auth .
+COPY --from=debian-builder /app/build/krown_auth .
 
 CMD ["./krown_auth"]
 
@@ -81,7 +90,7 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-COPY --from=ubuntu-builder /app/krown_auth .
+COPY --from=ubuntu-builder /app/build/krown_auth .
 
 CMD ["./krown_auth"]
 
@@ -96,6 +105,6 @@ RUN pacman -Syu --noconfirm \
 
 WORKDIR /app
 
-COPY --from=arch-builder /app/krown_auth .
+COPY --from=arch-builder /app/build/krown_auth .
 
 CMD ["./krown_auth"]
