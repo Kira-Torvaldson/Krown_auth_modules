@@ -1,0 +1,4 @@
+# Exclure le Dockerfile des statistiques de langages GitHub
+docker/Dockerfile linguist-vendored
+*.md linguist-documentation
+
