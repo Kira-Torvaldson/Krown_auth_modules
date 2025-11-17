@@ -8,8 +8,13 @@ int main(int argc, char *argv[]) {
     char public_key_content[8192];
     krown_auth_result_t result;
     
+    // Initialiser les buffers
+    public_key_path[0] = '\0';
+    public_key_content[0] = '\0';
+    
     // Afficher l'en-tête
     printf("=== Krown Auth - Préparation de la VM pour Krown ===\n\n");
+    fflush(stdout);
     
     // Préparer la VM et créer les clés automatiquement
     result = prepare_vm_for_krown(public_key_path, sizeof(public_key_path));

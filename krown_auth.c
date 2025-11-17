@@ -11,11 +11,11 @@
 #include <windows.h>
 #include <io.h>
 #include <direct.h>
+#include <sys/stat.h>
 #define access _access
 #define mkdir(path, mode) _mkdir(path)
 #define stat _stat
-#define WIFEXITED(status) (((status) & 0xFF) == 0)
-#define WEXITSTATUS(status) ((status) >> 8)
+#define chmod _chmod
 #else
 #include <sys/wait.h>
 #include <pwd.h>
@@ -98,10 +98,17 @@ static bool file_exists(const char *path) {
  * @brief Vérifie et corrige les permissions d'un fichier
  */
 static int set_file_permissions(const char *path, mode_t permissions) {
+#ifdef _WIN32
+    // Sur Windows, chmod peut ne pas fonctionner correctement
+    // On essaie quand même mais on ne retourne pas d'erreur si ça échoue
+    _chmod(path, permissions);
+    return 0; // On considère que c'est OK sur Windows
+#else
     if (chmod(path, permissions) != 0) {
         return -1;
     }
     return 0;
+#endif
 }
 
 /**
@@ -115,30 +122,56 @@ static int execute_command(const char *command, char *output, size_t output_size
     
     if (output != NULL && output_size > 0) {
         size_t read = fread(output, 1, output_size - 1, fp);
-        output[read] = '\0';
-        // Supprimer le saut de ligne final si présent
-        if (read > 0 && output[read - 1] == '\n') {
-            output[read - 1] = '\0';
+        if (read > 0) {
+            output[read] = '\0';
+            // Supprimer le saut de ligne final si présent
+            if (output[read - 1] == '\n') {
+                output[read - 1] = '\0';
+            }
+        } else {
+            output[0] = '\0';
         }
     }
     
     int status = pclose(fp);
-    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    
+#ifdef _WIN32
+    // Sur Windows, pclose retourne directement le code de sortie
+    // ou -1 en cas d'erreur
+    if (status == -1) {
+        return -1;
+    }
+    return status;
+#else
+    // Sur Unix, utiliser WIFEXITED et WEXITSTATUS
+    if (WIFEXITED(status)) {
+        return WEXITSTATUS(status);
+    }
+    return -1;
+#endif
 }
 
 bool krown_check_openssh_client(void) {
     // Vérifier si ssh-keygen est disponible
+    // On utilise une commande simple qui ne devrait pas causer de problème
     int result = execute_command("ssh-keygen -V 2>&1", NULL, 0);
-    return result == 0 || result == 1; // ssh-keygen retourne 1 pour -V mais c'est OK
+    // ssh-keygen -V retourne généralement 0 ou 1, les deux sont acceptables
+    // -1 signifie que la commande n'a pas pu être exécutée
+    return (result == 0 || result == 1);
 }
 
 krown_auth_result_t krown_ensure_ssh_directory(void) {
-    char home[MAX_PATH_LENGTH];
+    char home[MAX_PATH_LENGTH] = {0};
     if (get_home_directory(home, sizeof(home)) != 0) {
         return KROWN_AUTH_ERROR_SSH_DIR;
     }
     
-    char ssh_dir[MAX_PATH_LENGTH];
+    // Vérifier que home n'est pas vide
+    if (home[0] == '\0') {
+        return KROWN_AUTH_ERROR_SSH_DIR;
+    }
+    
+    char ssh_dir[MAX_PATH_LENGTH] = {0};
     int ret = snprintf(ssh_dir, sizeof(ssh_dir), "%s/.ssh", home);
     if (ret < 0 || ret >= (int)sizeof(ssh_dir)) {
         return KROWN_AUTH_ERROR_SSH_DIR;
@@ -150,7 +183,8 @@ krown_auth_result_t krown_ensure_ssh_directory(void) {
             return KROWN_AUTH_ERROR_SSH_DIR;
         }
     } else {
-        // Vérifier et corriger les permissions
+        // Vérifier et corriger les permissions (uniquement sur Unix)
+#ifndef _WIN32
         struct stat st;
         if (stat(ssh_dir, &st) == 0) {
             mode_t current_mode = st.st_mode & 0777;
@@ -160,6 +194,7 @@ krown_auth_result_t krown_ensure_ssh_directory(void) {
                 }
             }
         }
+#endif
     }
     
     return KROWN_AUTH_SUCCESS;
