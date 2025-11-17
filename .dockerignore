@@ -1,0 +1,31 @@
+# Fichiers de compilation
+*.o
+*.a
+*.so
+*.dll
+*.exe
+krown_auth
+
+# Dossiers de build
+build/
+dist/
+output/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# Documentation (optionnel, peut être inclus)
+# README.md
+
+# Fichiers temporaires
+*.swp
+*.swo
+*~
+.DS_Store
+

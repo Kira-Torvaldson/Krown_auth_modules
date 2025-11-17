@@ -12,6 +12,7 @@ Le script `krown_auth` prépare automatiquement la VM et génère les clés SSH 
 - [Fonctionnalités](#-fonctionnalités)
 - [Prérequis](#-prérequis)
 - [Installation](#-installation)
+- [Utilisation avec Docker](#-utilisation-avec-docker)
 - [Structure du projet](#-structure-du-projet)
 - [Utilisation](#-utilisation)
 - [API de référence](#-api-de-référence)
@@ -49,6 +50,7 @@ ssh-keygen -V
 Si la commande échoue, installez OpenSSH :
 
 - **Ubuntu/Debian** : `sudo apt-get install openssh-client`
+- **Arch Linux** : `sudo pacman -S openssh`
 - **CentOS/RHEL** : `sudo yum install openssh-clients`
 - **macOS** : Inclus par défaut
 - **Windows** : Installer via [OpenSSH pour Windows](https://github.com/PowerShell/Win32-OpenSSH) ou utiliser WSL
@@ -93,6 +95,33 @@ make shared
 make clean
 ```
 
+### Utilisation avec Docker
+
+Le module peut être compilé et testé dans un conteneur Docker pour garantir la compatibilité :
+
+```bash
+# Aller dans le dossier docker
+cd docker
+
+# Construire et tester avec Docker Compose (Debian par défaut)
+docker-compose up krown-auth-test
+
+# Tester sur différentes distributions
+docker-compose up krown-auth-debian    # Debian
+docker-compose up krown-auth-ubuntu    # Ubuntu
+docker-compose up krown-auth-arch      # Arch Linux
+
+# Construire toutes les images
+docker-compose build
+
+# Nettoyer les conteneurs
+docker-compose down
+```
+
+Les clés SSH générées seront stockées dans `~/.ssh/` du conteneur et peuvent être montées via volumes.
+
+Voir `docs/DOCKER.md` pour plus de détails.
+
 ## 🔑 Création des clés SSH
 
 ### Utilisation du script krown_auth (recommandé)
@@ -104,10 +133,10 @@ Le moyen le plus simple de préparer la VM et créer les clés SSH :
 make
 
 # Exécuter le script
-./krown_auth
+./build/krown_auth
 ```
 
-Le script `krown_auth` va automatiquement :
+Le script `build/krown_auth` va automatiquement :
 - ✅ Vérifier qu'OpenSSH est installé
 - ✅ Créer le dossier `~/.ssh` si nécessaire
 - ✅ **Générer les clés SSH** (ED25519 ou RSA 4096) dans `~/.ssh/`
@@ -210,11 +239,23 @@ Les clés sont automatiquement créées dans :
 
 ```
 Krown_auth_modules/
-├── krown_auth.h          # En-tête du module (API publique)
-├── krown_auth.c          # Implémentation du module
-├── krown_auth_main.c     # Point d'entrée du script krown_auth
+├── src/                  # Code source
+│   ├── krown_auth.c      # Implémentation du module
+│   └── krown_auth_main.c # Point d'entrée du script krown_auth
+├── include/              # En-têtes
+│   └── krown_auth.h      # En-tête du module (API publique)
+├── build/                # Fichiers de compilation (généré)
+│   ├── krown_auth        # Exécutable
+│   ├── libkrown_auth.a   # Bibliothèque statique
+│   └── libkrown_auth.so  # Bibliothèque partagée
+├── docs/                 # Documentation
+│   └── DOCKER.md         # Guide Docker
+├── docker/               # Configuration Docker
+│   ├── Dockerfile        # Dockerfile multi-stage
+│   └── docker-compose.yml # Docker Compose
 ├── Makefile              # Fichier de compilation
-├── README.md             # Documentation (ce fichier)
+├── README.md             # Documentation principale
+├── STRUCTURE.md          # Description de la structure du projet
 └── .gitignore            # Fichiers à ignorer par Git
 ```
 
@@ -222,9 +263,11 @@ Krown_auth_modules/
 
 ### Intégration dans votre projet
 
-1. **Copier les fichiers** : `krown_auth.h` et `krown_auth.c` dans votre projet
-2. **Compiler** : Inclure `krown_auth.c` dans votre compilation ou lier `libkrown_auth.a`
-3. **Inclure l'en-tête** : `#include "krown_auth.h"`
+1. **Copier les fichiers** : 
+   - `include/krown_auth.h` dans votre projet
+   - `src/krown_auth.c` dans votre projet (ou utiliser la bibliothèque)
+2. **Compiler** : Inclure `src/krown_auth.c` dans votre compilation ou lier `build/libkrown_auth.a`
+3. **Inclure l'en-tête** : `#include "krown_auth.h"` (ajouter `-Iinclude` à la compilation)
 
 ### Exemple minimal
 
@@ -259,13 +302,11 @@ int main(void) {
 ### Compilation avec votre projet
 
 ```bash
-gcc -o mon_projet mon_projet.c krown_auth.c -std=c11
-```
+# Avec les fichiers sources
+gcc -o mon_projet mon_projet.c src/krown_auth.c -Iinclude -std=c11
 
-Ou avec la bibliothèque statique :
-
-```bash
-gcc -o mon_projet mon_projet.c -L. -lkrown_auth -std=c11
+# Ou avec la bibliothèque statique
+gcc -o mon_projet mon_projet.c -Lbuild -lkrown_auth -Iinclude -std=c11
 ```
 
 ## 📚 API de référence
@@ -540,7 +581,7 @@ int main(void) {
 
 ### Systèmes d'exploitation
 
-- ✅ **Linux** : Testé sur Ubuntu, Debian, CentOS
+- ✅ **Linux** : Testé sur Ubuntu, Debian, Arch Linux, CentOS
 - ✅ **macOS** : Compatible (testé sur macOS 10.15+)
 - ⚠️ **Windows** : Compatible via MinGW/MSYS ou WSL
 

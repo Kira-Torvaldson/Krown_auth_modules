@@ -4,10 +4,11 @@
 *.so
 *.dll
 *.exe
-krown_auth
+
+# Dossier de build
+build/
 
 # Fichiers de build
-build/
 dist/
 
 # Fichiers temporaires
@@ -21,3 +22,9 @@ dist/
 .idea/
 *.code-workspace
 
+# Docker
+output/
+
+# Fichiers système
+Thumbs.db
+desktop.ini

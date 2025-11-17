@@ -115,21 +115,29 @@ static int set_file_permissions(const char *path, mode_t permissions) {
  * @brief Exécute une commande système et capture sa sortie
  */
 static int execute_command(const char *command, char *output, size_t output_size) {
+    // Sur Linux, popen utilise déjà le shell par défaut (/bin/sh)
+    // Pas besoin de spécifier explicitement, cela fonctionne sur toutes les distributions
     FILE *fp = popen(command, "r");
     if (fp == NULL) {
         return -1;
     }
     
     if (output != NULL && output_size > 0) {
-        size_t read = fread(output, 1, output_size - 1, fp);
-        if (read > 0) {
-            output[read] = '\0';
+        // Utiliser fgets pour lire ligne par ligne (plus sûr)
+        if (fgets(output, (int)output_size, fp) != NULL) {
             // Supprimer le saut de ligne final si présent
-            if (output[read - 1] == '\n') {
-                output[read - 1] = '\0';
+            size_t len = strlen(output);
+            if (len > 0 && output[len - 1] == '\n') {
+                output[len - 1] = '\0';
             }
         } else {
             output[0] = '\0';
+        }
+    } else {
+        // Si on ne veut pas la sortie, juste lire pour vider le buffer
+        char dummy[256];
+        while (fgets(dummy, sizeof(dummy), fp) != NULL) {
+            // Vider le buffer
         }
     }
     
@@ -153,10 +161,22 @@ static int execute_command(const char *command, char *output, size_t output_size
 
 bool krown_check_openssh_client(void) {
     // Vérifier si ssh-keygen est disponible
-    // On utilise une commande simple qui ne devrait pas causer de problème
-    int result = execute_command("ssh-keygen -V 2>&1", NULL, 0);
-    // ssh-keygen -V retourne généralement 0 ou 1, les deux sont acceptables
-    // -1 signifie que la commande n'a pas pu être exécutée
+    // On utilise une commande qui devrait toujours fonctionner si ssh-keygen existe
+#ifdef _WIN32
+    // Sur Windows, utiliser une commande qui redirige la sortie vers nul
+    int result = execute_command("ssh-keygen --help 2>nul", NULL, 0);
+#else
+    // Sur Unix/Linux (Debian/Ubuntu/Arch), utiliser --help qui est universellement supporté
+    // Rediriger stderr vers stdout puis vers /dev/null pour éviter les messages
+    int result = execute_command("ssh-keygen --help >/dev/null 2>&1", NULL, 0);
+    // Si --help ne fonctionne pas (peu probable), essayer -V (pour les versions récentes)
+    if (result != 0 && result != 1) {
+        result = execute_command("ssh-keygen -V >/dev/null 2>&1", NULL, 0);
+    }
+#endif
+    // ssh-keygen retourne généralement 0 ou 1, les deux sont acceptables
+    // -1 signifie que la commande n'a pas pu être exécutée (ssh-keygen n'existe pas)
+    // Tout autre code d'erreur signifie aussi que ssh-keygen n'est pas disponible
     return (result == 0 || result == 1);
 }
 
@@ -241,16 +261,32 @@ krown_auth_result_t krown_generate_ssh_keys(krown_key_type_t key_type, bool forc
     }
     
     // Construire la commande ssh-keygen
+    // Sur Linux, échapper les caractères spéciaux dans le chemin si nécessaire
     char command[1024];
+#ifdef _WIN32
+    // Sur Windows, utiliser des guillemets doubles et rediriger stderr vers nul
     if (key_type == KROWN_KEY_ED25519) {
         snprintf(command, sizeof(command), 
-                 "ssh-keygen -t ed25519 -f \"%s\" -N \"\" -q", 
+                 "ssh-keygen -t ed25519 -f \"%s\" -N \"\" -q 2>nul", 
                  private_key_path);
     } else {
         snprintf(command, sizeof(command), 
-                 "ssh-keygen -t rsa -b 4096 -f \"%s\" -N \"\" -q", 
+                 "ssh-keygen -t rsa -b 4096 -f \"%s\" -N \"\" -q 2>nul", 
                  private_key_path);
     }
+#else
+    // Sur Linux/Unix, utiliser des guillemets simples pour le chemin
+    // et rediriger stderr vers stdout (2>&1) puis vers /dev/null pour le mode silencieux
+    if (key_type == KROWN_KEY_ED25519) {
+        snprintf(command, sizeof(command), 
+                 "ssh-keygen -t ed25519 -f '%s' -N '' -q >/dev/null 2>&1", 
+                 private_key_path);
+    } else {
+        snprintf(command, sizeof(command), 
+                 "ssh-keygen -t rsa -b 4096 -f '%s' -N '' -q >/dev/null 2>&1", 
+                 private_key_path);
+    }
+#endif
     
     // Exécuter la génération
     int exit_code = execute_command(command, NULL, 0);

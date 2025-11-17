@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  # Service pour Debian
+  krown-auth-debian:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: debian-runtime
+    image: krown-auth:debian
+    container_name: krown-auth-debian
+    volumes:
+      - ../build:/app/output
+      - krown-ssh-debian:/root/.ssh
+    environment:
+      - HOME=/root
+    command: ./krown_auth
+    networks:
+      - krown-network
+
+  # Service pour Ubuntu
+  krown-auth-ubuntu:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: ubuntu-runtime
+    image: krown-auth:ubuntu
+    container_name: krown-auth-ubuntu
+    volumes:
+      - ../build:/app/output
+      - krown-ssh-ubuntu:/root/.ssh
+    environment:
+      - HOME=/root
+    command: ./krown_auth
+    networks:
+      - krown-network
+
+  # Service pour Arch Linux
+  krown-auth-arch:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: arch-runtime
+    image: krown-auth:arch
+    container_name: krown-auth-arch
+    volumes:
+      - ../build:/app/output
+      - krown-ssh-arch:/root/.ssh
+    environment:
+      - HOME=/root
+    command: ./krown_auth
+    networks:
+      - krown-network
+
+  # Service de test (utilise Debian par défaut)
+  krown-auth-test:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: debian-runtime
+    image: krown-auth:test
+    container_name: krown-auth-test
+    volumes:
+      - ../build:/app/output
+      - krown-ssh-test:/root/.ssh
+    environment:
+      - HOME=/root
+    command: ./krown_auth
+    networks:
+      - krown-network
+
+volumes:
+  krown-ssh-debian:
+  krown-ssh-ubuntu:
+  krown-ssh-arch:
+  krown-ssh-test:
+
+networks:
+  krown-network:
+    driver: bridge
+

@@ -51,13 +51,14 @@ int main(int argc, char *argv[]) {
         if (result == KROWN_AUTH_ERROR_OPENSSH_NOT_FOUND) {
             printf("Conseil: Installez OpenSSH client:\n");
             printf("  - Ubuntu/Debian: sudo apt-get install openssh-client\n");
+            printf("  - Arch Linux: sudo pacman -S openssh\n");
             printf("  - CentOS/RHEL: sudo yum install openssh-clients\n");
             printf("  - macOS: OpenSSH est inclus par défaut\n");
         } else if (result == KROWN_AUTH_ERROR_SSH_DIR) {
             printf("Conseil: Vérifiez les permissions du dossier home\n");
         } else if (result == KROWN_AUTH_ERROR_KEY_GEN) {
             printf("Conseil: Vérifiez que ssh-keygen fonctionne correctement\n");
-            printf("  Test: ssh-keygen -V\n");
+            printf("  Test: ssh-keygen --help\n");
         }
         
         return 1;
