@@ -75,9 +75,20 @@ static int get_home_directory(char *buffer, size_t size) {
  * @brief Construit le chemin complet d'un fichier dans .ssh
  */
 static int build_ssh_path(const char *filename, char *buffer, size_t size) {
+    if (filename == NULL || buffer == NULL || size == 0) {
+        return -1;
+    }
+    
     char home[MAX_PATH_LENGTH];
     if (get_home_directory(home, sizeof(home)) != 0) {
         return -1;
+    }
+    
+    // Vérifier que le nom de fichier n'est pas trop long
+    size_t filename_len = strlen(filename);
+    size_t home_len = strlen(home);
+    if (filename_len > MAX_PATH_LENGTH || home_len + filename_len + 8 > size) {
+        return -1; // Chemin trop long
     }
     
     int ret = snprintf(buffer, size, "%s/.ssh/%s", home, filename);
@@ -115,6 +126,10 @@ static int set_file_permissions(const char *path, mode_t permissions) {
  * @brief Exécute une commande système et capture sa sortie
  */
 static int execute_command(const char *command, char *output, size_t output_size) {
+    if (command == NULL) {
+        return -1;
+    }
+    
     // Sur Linux, popen utilise déjà le shell par défaut (/bin/sh)
     // Pas besoin de spécifier explicitement, cela fonctionne sur toutes les distributions
     FILE *fp = popen(command, "r");
@@ -123,6 +138,9 @@ static int execute_command(const char *command, char *output, size_t output_size
     }
     
     if (output != NULL && output_size > 0) {
+        // Initialiser le buffer
+        output[0] = '\0';
+        
         // Utiliser fgets pour lire ligne par ligne (plus sûr)
         if (fgets(output, (int)output_size, fp) != NULL) {
             // Supprimer le saut de ligne final si présent
@@ -130,14 +148,12 @@ static int execute_command(const char *command, char *output, size_t output_size
             if (len > 0 && output[len - 1] == '\n') {
                 output[len - 1] = '\0';
             }
-        } else {
-            output[0] = '\0';
         }
     } else {
         // Si on ne veut pas la sortie, juste lire pour vider le buffer
         char dummy[256];
         while (fgets(dummy, sizeof(dummy), fp) != NULL) {
-            // Vider le buffer
+            // Vider le buffer pour éviter que le processus reste bloqué
         }
     }
     
@@ -200,22 +216,34 @@ krown_auth_result_t krown_ensure_ssh_directory(void) {
     // Créer le dossier s'il n'existe pas
     if (!file_exists(ssh_dir)) {
         if (mkdir(ssh_dir, SSH_DIR_PERMISSIONS) != 0) {
-            return KROWN_AUTH_ERROR_SSH_DIR;
-        }
-    } else {
-        // Vérifier et corriger les permissions (uniquement sur Unix)
-#ifndef _WIN32
-        struct stat st;
-        if (stat(ssh_dir, &st) == 0) {
-            mode_t current_mode = st.st_mode & 0777;
-            if (current_mode != SSH_DIR_PERMISSIONS) {
-                if (chmod(ssh_dir, SSH_DIR_PERMISSIONS) != 0) {
-                    return KROWN_AUTH_ERROR_PERMISSIONS;
-                }
+            // Vérifier si l'erreur est due au fait que le dossier existe déjà
+            // (race condition possible)
+            if (errno != EEXIST) {
+                return KROWN_AUTH_ERROR_SSH_DIR;
             }
         }
-#endif
     }
+    
+    // Vérifier et corriger les permissions (uniquement sur Unix)
+#ifndef _WIN32
+    struct stat st;
+    if (stat(ssh_dir, &st) == 0) {
+        // Vérifier que c'est bien un dossier
+        if (!S_ISDIR(st.st_mode)) {
+            return KROWN_AUTH_ERROR_SSH_DIR;
+        }
+        
+        mode_t current_mode = st.st_mode & 0777;
+        if (current_mode != SSH_DIR_PERMISSIONS) {
+            if (chmod(ssh_dir, SSH_DIR_PERMISSIONS) != 0) {
+                return KROWN_AUTH_ERROR_PERMISSIONS;
+            }
+        }
+    } else {
+        // Impossible de lire les informations du dossier
+        return KROWN_AUTH_ERROR_SSH_DIR;
+    }
+#endif
     
     return KROWN_AUTH_SUCCESS;
 }
@@ -260,33 +288,43 @@ krown_auth_result_t krown_generate_ssh_keys(krown_key_type_t key_type, bool forc
         return KROWN_AUTH_ERROR_SSH_DIR;
     }
     
+    // Vérifier que le chemin n'est pas trop long pour la commande
+    if (strlen(private_key_path) > 900) {
+        return KROWN_AUTH_ERROR_SSH_DIR;
+    }
+    
     // Construire la commande ssh-keygen
-    // Sur Linux, échapper les caractères spéciaux dans le chemin si nécessaire
     char command[1024];
+    int cmd_len;
 #ifdef _WIN32
     // Sur Windows, utiliser des guillemets doubles et rediriger stderr vers nul
     if (key_type == KROWN_KEY_ED25519) {
-        snprintf(command, sizeof(command), 
-                 "ssh-keygen -t ed25519 -f \"%s\" -N \"\" -q 2>nul", 
-                 private_key_path);
+        cmd_len = snprintf(command, sizeof(command), 
+                          "ssh-keygen -t ed25519 -f \"%s\" -N \"\" -q 2>nul", 
+                          private_key_path);
     } else {
-        snprintf(command, sizeof(command), 
-                 "ssh-keygen -t rsa -b 4096 -f \"%s\" -N \"\" -q 2>nul", 
-                 private_key_path);
+        cmd_len = snprintf(command, sizeof(command), 
+                          "ssh-keygen -t rsa -b 4096 -f \"%s\" -N \"\" -q 2>nul", 
+                          private_key_path);
     }
 #else
     // Sur Linux/Unix, utiliser des guillemets simples pour le chemin
     // et rediriger stderr vers stdout (2>&1) puis vers /dev/null pour le mode silencieux
     if (key_type == KROWN_KEY_ED25519) {
-        snprintf(command, sizeof(command), 
-                 "ssh-keygen -t ed25519 -f '%s' -N '' -q >/dev/null 2>&1", 
-                 private_key_path);
+        cmd_len = snprintf(command, sizeof(command), 
+                          "ssh-keygen -t ed25519 -f '%s' -N '' -q >/dev/null 2>&1", 
+                          private_key_path);
     } else {
-        snprintf(command, sizeof(command), 
-                 "ssh-keygen -t rsa -b 4096 -f '%s' -N '' -q >/dev/null 2>&1", 
-                 private_key_path);
+        cmd_len = snprintf(command, sizeof(command), 
+                          "ssh-keygen -t rsa -b 4096 -f '%s' -N '' -q >/dev/null 2>&1", 
+                          private_key_path);
     }
 #endif
+    
+    // Vérifier que la commande n'a pas été tronquée
+    if (cmd_len < 0 || cmd_len >= (int)sizeof(command)) {
+        return KROWN_AUTH_ERROR_SSH_DIR;
+    }
     
     // Exécuter la génération
     int exit_code = execute_command(command, NULL, 0);
@@ -294,13 +332,25 @@ krown_auth_result_t krown_generate_ssh_keys(krown_key_type_t key_type, bool forc
         return KROWN_AUTH_ERROR_KEY_GEN;
     }
     
+    // Vérifier que les fichiers ont bien été créés
+    if (!file_exists(private_key_path)) {
+        return KROWN_AUTH_ERROR_KEY_GEN;
+    }
+    
+    char public_key_path[MAX_PATH_LENGTH];
+    int pub_path_len = snprintf(public_key_path, sizeof(public_key_path), "%s.pub", private_key_path);
+    if (pub_path_len < 0 || pub_path_len >= (int)sizeof(public_key_path)) {
+        return KROWN_AUTH_ERROR_SSH_DIR;
+    }
+    
+    if (!file_exists(public_key_path)) {
+        return KROWN_AUTH_ERROR_KEY_GEN;
+    }
+    
     // Appliquer les permissions
     if (set_file_permissions(private_key_path, PRIVATE_KEY_PERMISSIONS) != 0) {
         return KROWN_AUTH_ERROR_PERMISSIONS;
     }
-    
-    char public_key_path[MAX_PATH_LENGTH];
-    snprintf(public_key_path, sizeof(public_key_path), "%s.pub", private_key_path);
     
     if (set_file_permissions(public_key_path, PUBLIC_KEY_PERMISSIONS) != 0) {
         return KROWN_AUTH_ERROR_PERMISSIONS;
@@ -330,6 +380,11 @@ krown_auth_result_t krown_get_public_key(krown_key_type_t key_type, char *buffer
         return KROWN_AUTH_ERROR_MEMORY;
     }
     
+    // Buffer minimum pour une clé publique (au moins 100 caractères)
+    if (buffer_size < 100) {
+        return KROWN_AUTH_ERROR_MEMORY;
+    }
+    
     char public_key_path[MAX_PATH_LENGTH];
     krown_auth_result_t result = krown_get_public_key_path(key_type, public_key_path, sizeof(public_key_path));
     if (result != KROWN_AUTH_SUCCESS) {
@@ -345,15 +400,25 @@ krown_auth_result_t krown_get_public_key(krown_key_type_t key_type, char *buffer
         return KROWN_AUTH_ERROR_READ_KEY;
     }
     
-    size_t read = fread(buffer, 1, buffer_size - 1, fp);
-    buffer[read] = '\0';
-    
-    // Supprimer le saut de ligne final si présent
-    if (read > 0 && buffer[read - 1] == '\n') {
-        buffer[read - 1] = '\0';
+    // Lire la première ligne (les clés SSH publiques sont sur une seule ligne)
+    if (fgets(buffer, (int)buffer_size, fp) == NULL) {
+        fclose(fp);
+        return KROWN_AUTH_ERROR_READ_KEY;
     }
     
     fclose(fp);
+    
+    // Supprimer le saut de ligne final si présent
+    size_t len = strlen(buffer);
+    if (len > 0 && buffer[len - 1] == '\n') {
+        buffer[len - 1] = '\0';
+    }
+    
+    // Vérifier que la clé n'est pas vide
+    if (strlen(buffer) == 0) {
+        return KROWN_AUTH_ERROR_READ_KEY;
+    }
+    
     return KROWN_AUTH_SUCCESS;
 }
 
@@ -404,75 +469,68 @@ krown_auth_result_t prepare_vm_for_krown(char *public_key_path, size_t path_size
         return result;
     }
     
-    // 3. Déterminer quel type de clé utiliser et GARANTIR qu'au moins une clé existe
+    // 3. Essayer ED25519 en priorité, puis RSA 4096 en fallback
     krown_key_type_t key_type = KROWN_KEY_ED25519;
-    bool keys_exist = krown_keys_exist(key_type);
+    krown_key_type_t fallback_type = KROWN_KEY_RSA_4096;
+    bool key_ready = false;
     
-    // 4. Si aucune clé ED25519 n'existe, la créer
-    if (!keys_exist) {
-        result = krown_generate_ssh_keys(key_type, false);
-        if (result != KROWN_AUTH_SUCCESS) {
-            // Si ED25519 échoue, essayer RSA 4096
-            key_type = KROWN_KEY_RSA_4096;
-            keys_exist = krown_keys_exist(key_type);
-            
-            // Si RSA n'existe pas non plus, le créer OBLIGATOIREMENT
-            if (!keys_exist) {
-                result = krown_generate_ssh_keys(key_type, false);
-                if (result != KROWN_AUTH_SUCCESS) {
-                    return result; // Erreur : impossible de créer une clé
-                }
+    // Essayer d'abord ED25519
+    if (krown_keys_exist(key_type)) {
+        // Vérifier l'intégrité de la clé existante
+        char test_buffer[256];
+        if (krown_get_public_key(key_type, test_buffer, sizeof(test_buffer)) == KROWN_AUTH_SUCCESS) {
+            key_ready = true;
+        } else {
+            // Clé corrompue, régénérer
+            result = krown_generate_ssh_keys(key_type, true);
+            if (result == KROWN_AUTH_SUCCESS && krown_keys_exist(key_type)) {
+                key_ready = true;
             }
+        }
+    } else {
+        // Créer ED25519
+        result = krown_generate_ssh_keys(key_type, false);
+        if (result == KROWN_AUTH_SUCCESS && krown_keys_exist(key_type)) {
+            key_ready = true;
         }
     }
     
-    // 5. Vérifier que la clé existe vraiment (sécurité)
-    if (!krown_keys_exist(key_type)) {
-        // Si la clé n'existe toujours pas après génération, essayer RSA en dernier recours
-        if (key_type == KROWN_KEY_ED25519) {
-            key_type = KROWN_KEY_RSA_4096;
-            if (!krown_keys_exist(key_type)) {
-                result = krown_generate_ssh_keys(key_type, false);
-                if (result != KROWN_AUTH_SUCCESS) {
-                    return result;
+    // 4. Si ED25519 n'a pas fonctionné, essayer RSA 4096
+    if (!key_ready) {
+        key_type = fallback_type;
+        if (krown_keys_exist(key_type)) {
+            // Vérifier l'intégrité de la clé existante
+            char test_buffer[256];
+            if (krown_get_public_key(key_type, test_buffer, sizeof(test_buffer)) == KROWN_AUTH_SUCCESS) {
+                key_ready = true;
+            } else {
+                // Clé corrompue, régénérer
+                result = krown_generate_ssh_keys(key_type, true);
+                if (result == KROWN_AUTH_SUCCESS && krown_keys_exist(key_type)) {
+                    key_ready = true;
                 }
             }
         } else {
-            // Si RSA n'existe pas non plus après génération, erreur
-            return KROWN_AUTH_ERROR_KEY_GEN;
-        }
-    }
-    
-    // 6. Vérifier que la clé est lisible (intégrité)
-    char test_buffer[256];
-    if (krown_get_public_key(key_type, test_buffer, sizeof(test_buffer)) != KROWN_AUTH_SUCCESS) {
-        // Clé corrompue ou illisible, régénérer
-        result = krown_generate_ssh_keys(key_type, true);
-        if (result != KROWN_AUTH_SUCCESS) {
-            // Si régénération échoue, essayer l'autre type de clé
-            krown_key_type_t fallback_type = (key_type == KROWN_KEY_ED25519) 
-                ? KROWN_KEY_RSA_4096 
-                : KROWN_KEY_ED25519;
-            
-            if (!krown_keys_exist(fallback_type)) {
-                result = krown_generate_ssh_keys(fallback_type, false);
-                if (result != KROWN_AUTH_SUCCESS) {
-                    return result;
-                }
-                key_type = fallback_type;
-            } else {
-                key_type = fallback_type;
+            // Créer RSA 4096
+            result = krown_generate_ssh_keys(key_type, false);
+            if (result == KROWN_AUTH_SUCCESS && krown_keys_exist(key_type)) {
+                key_ready = true;
             }
         }
     }
     
-    // 7. Vérifier et corriger les permissions des clés (même si elles existaient déjà)
+    // 5. Si aucune clé n'est disponible, retourner une erreur
+    if (!key_ready) {
+        return (result != KROWN_AUTH_SUCCESS) ? result : KROWN_AUTH_ERROR_KEY_GEN;
+    }
+    
+    // 6. Vérifier et corriger les permissions des clés
     result = ensure_key_permissions(key_type);
     if (result != KROWN_AUTH_SUCCESS) {
         return result;
     }
     
-    // 8. Exposer le chemin de la clé publique (garantie d'exister et d'être valide à ce stade)
+    // 7. Exposer le chemin de la clé publique
     result = krown_get_public_key_path(key_type, public_key_path, path_size);
     return result;
 }
@@ -518,4 +576,5 @@ const char *krown_auth_get_error_message(krown_auth_result_t result) {
             return "Erreur inconnue";
     }
 }
+
 

@@ -2,8 +2,8 @@
 # Structure organisée avec src/, include/, build/
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -pedantic -O2 -Iinclude
-LDFLAGS = 
+CFLAGS = -Wall -Wextra -std=c11 -pedantic -O2 -Iinclude -D_FORTIFY_SOURCE=2 -fstack-protector-strong
+LDFLAGS = -Wl,-z,relro,-z,now 
 TARGET = libkrown_auth.a
 SO_TARGET = libkrown_auth.so
 STATIC_LIB = build/$(TARGET)

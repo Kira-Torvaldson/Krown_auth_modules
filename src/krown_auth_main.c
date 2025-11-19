@@ -23,9 +23,9 @@ int main(int argc, char *argv[]) {
         printf("✓ VM préparée avec succès !\n\n");
         printf("Chemin de la clé publique: %s\n\n", public_key_path);
         
-        // Déterminer le type de clé créée
+        // Déterminer le type de clé créée à partir du chemin
         krown_key_type_t key_type = KROWN_KEY_ED25519;
-        if (!krown_keys_exist(key_type)) {
+        if (strstr(public_key_path, "id_rsa") != NULL) {
             key_type = KROWN_KEY_RSA_4096;
         }
         
